@@ -39,7 +39,7 @@ import json
 from decimal import Decimal
 from functools import wraps
 
-from flask import abort, Flask, request, redirect
+from flask import abort, Flask, request, redirect, jsonify
 from werkzeug.routing import Rule
 
 from datastore import DataStore
@@ -147,6 +147,9 @@ def create():
             shortcode = prefix + "-" + shortcode
         if DATASTORE.shortcodes[shortcode] is None:
             break
+    else:
+        # Each random value hit an existing value, likely because of too little entropy
+        return jsonify({"error": "Failed to find a unique code. Increasing the length"}), 409
 
     # Create a record with the creater, time-stamp, target and code, keyed on the code
     info = {
