@@ -86,37 +86,12 @@ def generate_random_code(length):
         code_value //= 36
     return '-'.join(code[i:i+5] for i in range(0, length, 5))
 
-def _get_permissions(database):
-    if hasattr(request, 'form') and 'api_key' in request.form:
-        return api_keys.check_rights(database, request.form['account_id'], request.form['api_key'])
-    if hasattr(request, 'args') and 'api_key' in request.args:
-        return api_keys.check_rights(database, request.args['account_id'], request.args['api_key'])
-    return None
-
-# Test for wild-carded permissions
-def _test_permission(operation, permissions):
-    if operation in permissions:
-        return bool(permissions[operation])
-    parts = operation.split('.')[:-1]
-    while parts:
-        key = '.'.join(parts + ['*'])
-        if key in permissions:
-            return bool(permissions[key])
-        parts.pop()
-    # Default deny
-    return False
-
-def _check_access_right(operations):
-    permissions = _get_permissions(DATASTORE)
-
-    if permissions is None:
-        return False
-
-    for operation in operations.split(','):
-        operation = operation.strip()
-        if not _test_permission(operation, permissions):
-            return False
-    return True
+def _get_api_key():
+    if hasattr(request, 'form') and 'api_key' in request.form and 'account_id' in request.form:
+        return (request.form['account_id'], request.form['api_key'])
+    if hasattr(request, 'args') and 'api_key' in request.args and 'account_id' in request.args:
+        return (request.args['account_id'], request.args['api_key'])
+    return (None, None)
 
 # This is a decorator factory; a function that returns a decorator
 # (which in turn is a function that returns a function).
@@ -125,7 +100,9 @@ def authorised(operations):
     def _bound_auth_decorator(endpoint_func):
         @wraps(endpoint_func)
         def _authorised_endpoint(*args, **kwargs):
-            if not _check_access_right(operations):
+            account_id, api_key = _get_api_key()
+            if ((account_id is None) or
+                    (not api_keys.check_permissions(DATASTORE, account_id, api_key, operations))):
                 abort(401)
             return endpoint_func(*args, **kwargs)
         return _authorised_endpoint

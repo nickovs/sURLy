@@ -19,15 +19,10 @@ deployment tool (although it can easily be deployed elsewhere).
 ## Depenencies
 
 The only direct dependencies for `sURLy` are
-[`flask`](https://palletsprojects.com/p/flask/),
-[`boto3`](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)
-and [`click`](https://click.palletsprojects.com/). (`click` is only
-needed for the command line utility for API key management). These
-can be installed through the [Python Package Index](https://pypi.org)
-by running the command:
-```
-pip install flask boto3 click
-```
+[`flask`](https://palletsprojects.com/p/flask/) and
+[`boto3`](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
+These can be installed through the [Python Package Index](https://pypi.org)
+by running the command: ``` pip install flask boto3 click ```
 
 For deployment into the AWS Lambda the easy way you will also want to install
 `zappa`:
@@ -80,7 +75,15 @@ the time being!
 
 ## API key management
 
-**TODO** How to use the `surly_api_key.py` tool.
+**TODO** How to use the `api_key_tool.py` tool.
 
+## Running locally for testing
+
+If you want to test the code by running it locally you can run `flask`
+directly:
+
+```
+FLASK_DEBUG=1 FLASK_APP=surly.py flask run
+```
 
 

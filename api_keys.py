@@ -65,9 +65,35 @@ def delete(database, account_id):
     del database.api_keys[account_id]
     return True
 
-def check_rights(database, account_id, api_key):
-    """Check an API key and, if valid, return the set of rights associated with it"""
+def get_permissions(database, account_id, api_key):
+    """Check an API key and, if valid, return the set of permissions associated with it"""
     key_info = database.api_keys[account_id]
     if key_info is None or key_info['api_key'] != api_key:
         return None
     return key_info['permissions']
+
+# Test for wild-carded permissions
+def _test_permission(operation, permissions):
+    if operation in permissions:
+        return bool(permissions[operation])
+    parts = operation.split('.')[:-1]
+    while parts:
+        key = '.'.join(parts + ['*'])
+        if key in permissions:
+            return bool(permissions[key])
+        parts.pop()
+    # Default deny
+    return False
+
+def check_permissions(database, account_id, api_key, requested_actions):
+    """Test if the given account and API key grant all the requested actions"""
+    permissions = get_permissions(database, account_id, api_key)
+
+    if permissions is None:
+        return False
+
+    for operation in requested_actions.split(','):
+        operation = operation.strip()
+        if not _test_permission(operation, permissions):
+            return False
+    return True
