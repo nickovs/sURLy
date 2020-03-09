@@ -81,7 +81,7 @@ def generate_random_code(length):
     byte_length = -int(-length * LOG_36_2 // 8) + 1
     code_value = int.from_bytes(os.urandom(byte_length), 'little')
     code = ''
-    for i in range(20):
+    for i in range(length):
         code += CODE_CHAR_SET[code_value % 36]
         code_value //= 36
     return '-'.join(code[i:i+5] for i in range(0, length, 5))
