@@ -1,0 +1,209 @@
+#!/usr/bin/env python
+
+# This file is part of the sURLy project
+#
+# The MIT License (MIT)
+#
+# Copyright (c) 2019-2020 Nicko van Someren
+#               2020 Absolute Software
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
+# SPDX-License-Identifier: MIT
+
+
+
+"""A URL shortener service"""
+
+import os
+import logging
+import time
+import json
+
+from decimal import Decimal
+from functools import wraps
+
+from flask import abort, Flask, request, redirect
+from werkzeug.routing import Rule
+
+from datastore import DataStore
+import api_keys
+
+# Default length of shortcode
+CODE_LENGTH = 20
+# Number of attempts to find a unique code
+NEW_CODE_TRIES = 5
+# The number of bits in a base36 character
+LOG_36_2 = 5.17
+
+DATASTORE_TABLE_NAME = os.environ.get('DATASTORE_TABLE_NAME', 'url_shortener_table')
+
+# Set up some basic logging
+logging.basicConfig(level=logging.WARNING)
+# Set up a logger of our own
+LOGGER = logging.getLogger(__name__+"CORE")
+try:
+    LOGGER.setLevel(os.environ.get("LOG_LEVEL", "INFO").strip().upper())
+except ValueError:
+    LOGGER.setLevel(logging.INFO)
+
+DATASTORE = DataStore(DATASTORE_TABLE_NAME,
+                      ['shortcodes', 'api_keys', 'config'],
+                      uncached=['api_keys'])
+
+class DynamoEncoder(json.JSONEncoder):
+    """A special JSON encoder that works with the decimals from DynamoDB"""
+    def default(self, o): # pylint: disable=method-hidden
+        if isinstance(o, Decimal):
+            return int(o)
+        return super().default(o)
+
+CODE_CHAR_SET = 'abcdefghijklmnopqrstuvwxyz0123456789'
+def generate_random_code(length):
+    """Generate a random code with length base-36 characters"""
+    # We make code_value a few bits longer than 36^length
+    byte_length = -int(-length * LOG_36_2 // 8) + 1
+    code_value = int.from_bytes(os.urandom(byte_length), 'little')
+    code = ''
+    for i in range(20):
+        code += CODE_CHAR_SET[code_value % 36]
+        code_value //= 36
+    return '-'.join(code[i:i+5] for i in range(0, length, 5))
+
+def _get_permissions(database):
+    if hasattr(request, 'form') and 'api_key' in request.form:
+        return api_keys.check_rights(database, request.form['account_id'], request.form['api_key'])
+    if hasattr(request, 'args') and 'api_key' in request.args:
+        return api_keys.check_rights(database, request.args['account_id'], request.args['api_key'])
+    return None
+
+# Test for wild-carded permissions
+def _test_permission(operation, permissions):
+    if operation in permissions:
+        return bool(permissions[operation])
+    parts = operation.split('.')[:-1]
+    while parts:
+        key = '.'.join(parts + ['*'])
+        if key in permissions:
+            return bool(permissions[key])
+        parts.pop()
+    # Default deny
+    return False
+
+def _check_access_right(operations):
+    permissions = _get_permissions(DATASTORE)
+
+    if permissions is None:
+        return False
+
+    for operation in operations.split(','):
+        operation = operation.strip()
+        if not _test_permission(operation, permissions):
+            return False
+    return True
+
+# This is a decorator factory; a function that returns a decorator
+# (which in turn is a function that returns a function).
+def authorised(operations):
+    """A decorator factory which ensures an API access is authorised"""
+    def _bound_auth_decorator(endpoint_func):
+        @wraps(endpoint_func)
+        def _authorised_endpoint(*args, **kwargs):
+            if not _check_access_right(operations):
+                abort(401)
+            return endpoint_func(*args, **kwargs)
+        return _authorised_endpoint
+    return _bound_auth_decorator
+
+# Flask likes lower case but pylint does not
+# pylint: disable=invalid-name
+app = Flask(__name__)
+app.json_encoder = DynamoEncoder
+
+
+@app.route("/")
+def hello():
+    """Dummy root page for testing responses"""
+    return "OK"
+
+# We handle the routing of this one differently, since we want to support ALL methods
+app.url_map.add(Rule("/<shortcode>", endpoint='expander'))
+@app.endpoint('expander')
+def expander(shortcode):
+    """Perform a URL redirection"""
+    code_info = DATASTORE.shortcodes[shortcode]
+    if code_info is None:
+        abort(404)
+    return redirect(code_info['target'])
+
+@app.route("/api/v1/shortcode", methods=['POST'])
+@authorised("shortcode.create")
+def create():
+    """Register a new target URL and get back the short code"""
+    # Generate a unique new code (looping until it's unique)
+
+    form = request.form
+
+    length = int(form['length']) if 'length' in form else CODE_LENGTH
+    prefix = form['prefix'] if 'prefix' in form else None
+    target = form['target']
+
+    for _ in range(NEW_CODE_TRIES):
+        shortcode = generate_random_code(length)
+        if prefix is not None:
+            shortcode = prefix + "-" + shortcode
+        if DATASTORE.shortcodes[shortcode] is None:
+            break
+
+    # Create a record with the creater, time-stamp, target and code, keyed on the code
+    info = {
+        'target': target,
+        'shortcode': shortcode,
+        'creator': request.form['account_id'],
+        'timestamp': int(time.time())
+        }
+
+    DATASTORE.shortcodes[shortcode] = info
+
+    return info
+
+@app.route("/api/v1/shortcode/<shortcode>", methods=['DELETE'])
+@authorised("shortcode.delete")
+def shortcode_delete(shortcode):
+    """Delete an existing shortcode"""
+    code_info = DATASTORE.shortcodes[shortcode]
+    if code_info is None:
+        abort(404)
+
+    del  DATASTORE.shortcodes[shortcode]
+
+    return "OK"
+
+@app.route("/api/v1/shortcode/<shortcode>", methods=['GET'])
+@authorised("shortcode.info")
+def shortcode_info(shortcode):
+    """Delete an existing shortcode"""
+    # Create a record with the creater, time-stamp, target and code, keyed on the code
+
+    code_info = DATASTORE.shortcodes[shortcode]
+
+    if code_info is None:
+        abort(404)
+
+    return code_info
