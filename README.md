@@ -22,7 +22,7 @@ The only direct dependencies for `sURLy` are
 [`flask`](https://palletsprojects.com/p/flask/) and
 [`boto3`](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html).
 These can be installed through the [Python Package Index](https://pypi.org)
-by running the command: ``` pip install flask boto3 click ```
+by running the command: ``` pip install flask boto3 ```
 
 For deployment into the AWS Lambda the easy way you will also want to install
 `zappa`:
