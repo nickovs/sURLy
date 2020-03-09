@@ -1,11 +1,11 @@
-# sURLy: A simply URL shortener
+# sURLy: A simple URL shortener
 
 `sURLy` is designed to allow an organisation to deploy a private,
 access-controlled URL shortener service.
 
 `sURLy` is built using the
 [`flask`](https://palletsprojects.com/p/flask/) WSGI framework and uses 
-[AWS}(https://aws.amazon.com) [DynamoDB](https://aws.amazon.com/dynamodb/)
+[AWS](https://aws.amazon.com) [DynamoDB](https://aws.amazon.com/dynamodb/)
 to store the destination URLs as well as the API key access control
 information. Use of a WSGI framwork allows it to be deployed in
 [wide variety](https://wsgi.readthedocs.io/en/latest/servers.html) of
@@ -22,14 +22,14 @@ The only direct dependencies for `sURLy` are
 [`flask`](https://palletsprojects.com/p/flask/),
 [`boto3`](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html)
 and [`click`](https://click.palletsprojects.com/). (`click` is only
-needed These
+needed for the command line utility for API key management). These
 can be installed through the [Python Package Index](https://pypi.org)
 by running the command:
 ```
 pip install flask boto3 click
 ```
 
-For deployment into the AWS Lambda you will also need to install
+For deployment into the AWS Lambda the easy way you will also want to install
 `zappa`:
 ```
 pip install zappa
@@ -48,10 +48,10 @@ This will configure all of the necessary settings in AWS, upload the
 code, start the Lambda service and ultimately print the URL of the API
 gateway endpoint where the service runs.
 
-For production services a little more work is required to improve both
+For production services a _little_ more work is required to improve both
 security and usability. The default development deployment will grant
-your Lambda service wide-reaching access rights. You will want to
-restrict it to nothhing more than accessing the DynamoDB
+your Lambda service wide-reaching access rights; you will want to
+restrict it to nothing more than accessing the DynamoDB
 database. Also, by default the URL of the API endpoint is long and
 complex, so the resulting shorted URLs end up being long!
 
