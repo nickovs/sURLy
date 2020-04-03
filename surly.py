@@ -28,12 +28,14 @@
 # SPDX-License-Identifier: MIT
 
 
-
 """A URL shortener service"""
+
+__version__ = "0.2.0"
 
 import os
 import logging
 import time
+import datetime
 import json
 
 from decimal import Decimal
@@ -117,7 +119,7 @@ app.json_encoder = DynamoEncoder
 @app.route("/")
 def hello():
     """Dummy root page for testing responses"""
-    return "OK"
+    return {"appname": "sURLy", "version": __version__}
 
 # We handle the routing of this one differently, since we want to support ALL methods
 app.url_map.add(Rule("/<shortcode>", endpoint='expander'))
@@ -127,6 +129,12 @@ def expander(shortcode):
     code_info = DATASTORE.shortcodes[shortcode]
     if code_info is None:
         abort(404)
+
+    # Check for expiry of codes
+    if "expires" in code_info and time.time() > code_info["expires"]:
+        del DATASTORE.shortcodes[shortcode]
+        abort(404)
+
     return redirect(code_info['target'])
 
 @app.route("/api/v1/shortcode", methods=['POST'])
@@ -140,6 +148,25 @@ def create():
     length = int(form['length']) if 'length' in form else CODE_LENGTH
     prefix = form['prefix'] if 'prefix' in form else None
     target = form['target']
+
+    now = int(time.time())
+
+    if 'expires_in' in form:
+        try:
+            expires = int(form['expires_in']) + now
+        except ValueError:
+            abort(422, "Invalid expires_in value (integer seconds expected)")
+    elif 'expires_at' in form:
+        try:
+            expires = int(datetime.datetime.fromisoformat(form['expires_at']).timestamp())
+        except ValueError:
+            abort(422, "Invalid expires_at value (ISO format date expected)")
+    else:
+        expires = None
+
+    if expires and expires < now+1:
+        abort(422, "Expiry time must be in the future")
+
 
     for _ in range(NEW_CODE_TRIES):
         shortcode = generate_random_code(length)
@@ -158,6 +185,9 @@ def create():
         'creator': request.form['account_id'],
         'timestamp': int(time.time())
         }
+
+    if expires:
+        info['expires'] = expires
 
     DATASTORE.shortcodes[shortcode] = info
 

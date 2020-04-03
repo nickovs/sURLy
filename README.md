@@ -4,7 +4,7 @@
 access-controlled URL shortener service.
 
 `sURLy` is built using the
-[`flask`](https://palletsprojects.com/p/flask/) WSGI framework and uses 
+[`flask`](https://palletsprojects.com/p/flask/) WSGI framework and uses
 [AWS](https://aws.amazon.com) [DynamoDB](https://aws.amazon.com/dynamodb/)
 to store the destination URLs as well as the API key access control
 information. Use of a WSGI framwork allows it to be deployed in
@@ -54,12 +54,53 @@ complex, so the resulting shorted URLs end up being long!
 for details.
 
 The problem of long "shortened" URLs is easily fixed by deploying
-`sURLy` with a custom domain name. 
+`sURLy` with a custom domain name.  There are three parts to doing
+this:
 
-**TODO** _Add more detailed instructions_
+ 1) Configure a certificate and key for SSL/TLS for the custom domain.
+ 1) Configure `zappa` to use the custom domain.
+ 1) Point the custom domain name to the API gateway endpoint for the
+ service.
 
-Add something like the following to your `production` stage in the
-`zappa_settings.json`:
+The ease of performing these three steps depends very much on if you
+make use of AWS's Route 53 DNS service. Amazon provides a number of
+tools to smooth the deployment significantly if you are using Amazon's
+own DNS but the is still relatively straightforward to do this without
+Route 53. You can also choose to use your own keys and certificates or
+you can use AWS Certificate Manager (ACM) to generate its own keys and
+certificates.
+
+### Deploying with `zappa`, Route 53 and ACM certificates.
+
+Go to AWS ACM and request a certificate for the desired domain, using
+DNS domain control authentication. This returns the ARN for the
+certifciate.
+
+Setup `zappa_settings.json` with something like the following:
+
+```
+{
+  'domain': 'app.example.com'
+  'certificate_arn': 'arn:aws:acm:<my arn>'
+  'route53_enabled': true
+}
+```
+
+Run:
+
+```
+zappa certify
+zappa deploy
+```
+
+### Deploying with `zappa` and ACM cetificates but without Route 53
+
+Go to AWS ACM and request a certificate for the desired domain, using
+whichever sort of verification methos DNS domain control authentication. This returns the ARN for the
+certifciate.
+
+Setup `zappa_settings.json` with something like the following:
+
 ```
 {
   'domain': 'app.example.com'
@@ -68,7 +109,78 @@ Add something like the following to your `production` stage in the
 }
 ```
 
+Run:
+
+```
+zappa certify
+zappa deploy
+```
+
+Record the address of the API endpoint.
+
+Create a CNAME record to point the desired domain name to the API
+endpoint.
+
+You will need to fix this record if you ever undeploy and redeploy the
+service (but not if you use `zappa update`).
+
+
+### Deploying with `zappa` without ACM or Route 53
+
+Create a key pair. Get a certificate for the public key at the desired
+endpoint name. Upload the key, cert and cert chain to ACM. This yields
+an ARN for your non-ACM certifcate.
+
+
+Add something like the following to your `production` stage in the
+`zappa_settings.json`:
+
+```
+{
+  'domain': 'app.example.com'
+  'certificate_arn': 'arn:aws:acm:<my arn>'
+  'route53_enabled': false
+}
+```
+
+Record the address of the API endpoint.
+
+Create a CNAME record to point the desired domain name to the API
+endpoint.
+
+You will need to fix this record if you ever undeploy and redeploy the
+service (but not if you use `zappa update`).
+
+
+
 ## Short URL management API
+
+* Create a shortcode: `POST /api/v1/shortcode`.
+  * Parameters (sent using formal web form (`application/x-www-form-urlencoded`) encoding:
+    * `account_id`: (required) string to identify the application or user
+  creating the shortcode.
+    * `api_key`: (required) 'secret' string to authenticate the requesting account.
+    * `target`: (required) URL for the desitnation of the shortcode link.
+    * `prefix`: (optional) if present the short code will start with this
+string.
+    * `length`: (optional) number of random characters in the
+    shortcode
+  * Return (as a  JSON object)
+
+
+
+* Check details of the shortcode: `GET /api/v1/shortcode/<code>`.
+  * Parameters encoded as an HTTP quesry string:
+    * `account_id`: (required) string to identify the application or user
+  creating the shortcode.
+    * `api_key`: (required) 'secret' string to authenticate the requesting account.
+
+* Delete a shortcode: `DELETE /api/v1/shortcode/<code>`.
+  * Parameters encoded as an HTTP quesry string:
+    * `account_id`: (required) string to identify the application or user
+  creating the shortcode.
+    * `api_key`: (required) 'secret' string to authenticate the requesting account.
+
 
 **TODO** Create, examine and delete shortcodes... read the code for
 the time being!
@@ -85,5 +197,3 @@ directly:
 ```
 FLASK_DEBUG=1 FLASK_APP=surly.py flask run
 ```
-
-
